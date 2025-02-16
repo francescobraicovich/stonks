@@ -7,7 +7,7 @@ from pymongo import MongoClient
 logger = logging.getLogger(__name__)
 
 class MongoDBManager:
-    def __init__(self, uri: str, db_name: str = "wsb_db"):
+    def __init__(self, uri: str, db_name: str):
         """
         Args:
             uri: MongoDB connection string (e.g., "mongodb://user:password@localhost:27017")
@@ -16,7 +16,7 @@ class MongoDBManager:
         self.client = MongoClient(uri)
         self.db = self.client[db_name]
 
-    def store_submissions(self, df: pd.DataFrame, collection_name: str = "wsb_submissions"):
+    def store_submissions(self, df: pd.DataFrame, collection_name: str = "reddit_submissions"):
         """
         Insert Reddit submission documents into a MongoDB collection.
         """
@@ -35,7 +35,6 @@ class MongoDBManager:
         Insert price data into a MongoDB collection.
         """
         try:
-            # Reset index in case of a multi-index DataFrame (from yfinance)
             df_reset = df.reset_index()
             records = df_reset.to_dict("records")
             if records:
