@@ -1,20 +1,35 @@
 # data_storage/database_manager.py
-
+import os
 import logging
-import pandas as pd
 from pymongo import MongoClient
+from dotenv import load_dotenv
+import yaml
+
+# Load environment variables from .env
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
 class MongoDBManager:
-    def __init__(self, uri: str, db_name: str):
+    def __init__(self, config_path: str = "config/config.yml"):
         """
-        Args:
-            uri: MongoDB connection string (e.g., "mongodb://user:password@localhost:27017")
-            db_name: Name of the database to use.
+        Connect to MongoDB using environment variables.
         """
-        self.client = MongoClient(uri)
+        # Load config.yml
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+
+        # Fetch credentials (from .env or config.yml)
+        mongo_uri = os.getenv("MONGO_URI", config["database"]["uri"])
+        db_name = os.getenv("DB_NAME", config["database"]["db_name"])
+
+        if not mongo_uri:
+            raise ValueError("MONGO_URI is not set. Please define it in .env or config.yml")
+
+        self.client = MongoClient(mongo_uri)
         self.db = self.client[db_name]
+        logger.info(f"Connected to MongoDB database: {db_name}")
+
 
     def store_submissions(self, df: pd.DataFrame, collection_name: str = "reddit_submissions"):
         """
