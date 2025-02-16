@@ -1,7 +1,7 @@
 # stonks
 Trading based on sentiment analysis on reddit.
 
-
+```
 reddit-finance-pipeline/
 ├── config/
 │   └── config.yml
@@ -19,3 +19,4 @@ reddit-finance-pipeline/
 ├── main.py
 ├── requirements.txt
 └── README.md
+```
