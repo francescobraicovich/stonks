@@ -1,0 +1,6 @@
+requests==2.31.0
+pandas==2.0.3
+SQLAlchemy==2.0.9
+psycopg2==2.9.7   # For PostgreSQL
+PyYAML==6.0
+yfinance==0.2.26
