@@ -18,6 +18,15 @@ class DataCleaner:
 
     @staticmethod
     def _clean_text(text: str) -> str:
+        """
+        Cleans the input text by removing non-ASCII characters and extra whitespace.
+
+        Args:
+            text (str): The input text to be cleaned.
+
+        Returns:
+            str: The cleaned text. If the input is not a string, returns an empty string.
+        """
         if not isinstance(text, str):
             return ""
         text = re.sub(r'[^\x00-\x7F]+',' ', text)
