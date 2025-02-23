@@ -1,53 +1,87 @@
-# pipelines/reddit_price_pipeline.py
-
+import os
 import logging
 import yaml
+import pandas as pd
 from datetime import datetime
-from data_ingestion.pushshift_reddit import PushshiftRedditIngestor
-from data_ingestion.yahoo_finance import YahooFinanceIngestor
-from data_ingestion.data_cleaner import DataCleaner
-from data_storage.database_manager import MongoDBManager
+from data_ingestion.reddit_api import RedditIngestor
 
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
+# Define the data directory
+DATA_DIR = "data"
+
+def ensure_data_directory():
+    """Ensures that the 'data' directory exists."""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+
+def load_existing_data(subreddit: str):
+    """Loads existing Parquet data for the subreddit if available."""
+    file_path = os.path.join(DATA_DIR, f"{subreddit}.parquet")
+    if os.path.exists(file_path):
+        try:
+            df = pd.read_parquet(file_path)
+            logger.info(f"Loaded {len(df)} existing posts from {file_path}")
+            return df
+        except Exception as e:
+            logger.error(f"Error loading {file_path}: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
+
+def save_to_parquet(df: pd.DataFrame, subreddit: str):
+    """Saves the DataFrame to a Parquet file in the data directory."""
+    if df.empty:
+        logger.warning(f"No new data to save for r/{subreddit}. Skipping.")
+        return
+    
+    file_path = os.path.join(DATA_DIR, f"{subreddit}.parquet")
+    df.to_parquet(file_path, index=False)
+    logger.info(f"Saved {len(df)} unique posts from r/{subreddit} to {file_path}")
+
 def run_pipeline(config_path: str):
+    """
+    Runs the pipeline to fetch Reddit posts and store them in local Parquet files without duplicates.
+    """
+    ensure_data_directory()
+
     # Load configuration
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    pushshift_url = config["reddit_api"]["pushshift_url"]
+    # Load Reddit API credentials
+    reddit_client_id = config["reddit_api"]["client_id"]
+    reddit_client_secret = config["reddit_api"]["client_secret"]
+    reddit_username = config["reddit_api"]["username"]
+    reddit_password = config["reddit_api"]["password"]
+    user_agent = config["reddit_api"]["user_agent"]
     subreddits = config["reddit_api"]["subreddits"]
-    db_uri = config["database"]["uri"]
-    db_name = config["database"]["db_name"]
-    tickers = config["yahoo_finance"]["tickers"]
+    days = config["reddit_api"].get("days", 30)  # Default to 30 days if not specified
 
-    # Initialize ingestion and storage classes
-    reddit_ingestor = PushshiftRedditIngestor(base_url=pushshift_url)
-    yahoo_ingestor = YahooFinanceIngestor(tickers=tickers)
-    db_manager = MongoDBManager(uri=db_uri, db_name=db_name)
+    # Initialize Reddit API
+    reddit_ingestor = RedditIngestor(
+        client_id=reddit_client_id,
+        client_secret=reddit_client_secret,
+        username=reddit_username,
+        password=reddit_password,
+        user_agent=user_agent,
+    )
 
-    # Define date ranges (example: data for 2021)
-    start_date_unix = int(datetime(2021, 1, 1).timestamp())
-    end_date_unix = int(datetime(2022, 1, 1).timestamp())
-
-    # Loop through each subreddit and ingest data
-    all_submissions = []
+    # Fetch and store posts for each subreddit
     for subreddit in subreddits:
-        logger.info(f"Starting ingestion for r/{subreddit}")
-        submissions_df = reddit_ingestor.fetch_submissions(subreddit, start_date_unix, end_date_unix)
-        submissions_df = DataCleaner.clean_submission_text(submissions_df)
-        logger.info(f"Total records for r/{subreddit}: {len(submissions_df)}")
-        # Optionally, you could store each subreddit separately by setting collection_name=f"reddit_{subreddit}"
-        db_manager.store_submissions(submissions_df, collection_name="reddit_submissions")
-        all_submissions.append(submissions_df)
+        logger.info(f"Starting ingestion for r/{subreddit} (last {days} days)")
 
-    # Optionally, combine all submissions for further processing
-    # combined_df = pd.concat(all_submissions, ignore_index=True)
+        # Fetch new submissions
+        new_df = reddit_ingestor.fetch_submissions(subreddit, days=days)
 
-    # Fetch historical price data (example: for 2021)
-    yahoo_start = "2021-01-01"
-    yahoo_end = "2022-01-01"
-    price_df = yahoo_ingestor.fetch_historical_data(yahoo_start, yahoo_end)
-    db_manager.store_prices(price_df, collection_name="ticker_prices")
+        print(new_df.head())
 
-    logger.info("Pipeline run completed successfully.")
+        # Load existing data and merge with new
+        existing_df = load_existing_data(subreddit)
+        combined_df = pd.concat([existing_df, new_df]).drop_duplicates(subset=["id"]).reset_index(drop=True)
+
+        # Save updated dataset
+        save_to_parquet(combined_df, subreddit)
+
+    logger.info("Pipeline completed successfully.")

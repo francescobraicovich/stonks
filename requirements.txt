@@ -1,6 +1,10 @@
-requests==2.31.0
-pandas==2.0.3
-SQLAlchemy==2.0.9
-psycopg2==2.9.7   # For PostgreSQL
-PyYAML==6.0
-yfinance==0.2.26
+requests==2.32.3 # For HTTP requests
+pandas==2.2.3 # For data manipulation
+SQLAlchemy==2.0.38 # For SQL
+psycopg2==2.9.10  # For PostgreSQL
+PyYAML==6.0.2 # For YAML
+yfinance==0.2.53 # For Yahoo Finance
+pymongo==4.11.1 # For MongoDB
+python-dotenv==1.0.1 # For environment variables
+praw==7.8.1 # For Reddit API
+fastparquet==2024.11.0

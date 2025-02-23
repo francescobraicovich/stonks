@@ -11,5 +11,4 @@ logging.basicConfig(
 if __name__ == "__main__":
     config_path = os.getenv("CONFIG_PATH", "config/config.yml")
 
-    
     run_pipeline(config_path)
