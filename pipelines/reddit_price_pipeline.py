@@ -2,14 +2,16 @@ import os
 import logging
 import yaml
 import pandas as pd
-from datetime import datetime
+from dotenv import load_dotenv  # Import dotenv
 from data_ingestion.reddit_api import RedditIngestor
+
+# Load environment variables from a .env file
+load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-# Define the data directory
 DATA_DIR = "data"
 
 def ensure_data_directory():
@@ -50,14 +52,14 @@ def run_pipeline(config_path: str):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    # Load Reddit API credentials
-    reddit_client_id = config["reddit_api"]["client_id"]
-    reddit_client_secret = config["reddit_api"]["client_secret"]
-    reddit_username = config["reddit_api"]["username"]
-    reddit_password = config["reddit_api"]["password"]
+    # Load Reddit API credentials (fallback to .env if not in YAML)
+    reddit_client_id = os.getenv("REDDIT_CLIENT_ID", config["reddit_api"].get("client_id"))
+    reddit_client_secret = os.getenv("REDDIT_CLIENT_SECRET", config["reddit_api"].get("client_secret"))
+    reddit_username = os.getenv("REDDIT_USERNAME", config["reddit_api"].get("username"))
+    reddit_password = os.getenv("REDDIT_PASSWORD", config["reddit_api"].get("password"))
     user_agent = config["reddit_api"]["user_agent"]
     subreddits = config["reddit_api"]["subreddits"]
-    days = config["reddit_api"].get("days", 30)  # Default to 30 days if not specified
+    days = config["reddit_api"].get("days", 30)
 
     # Initialize Reddit API
     reddit_ingestor = RedditIngestor(
@@ -74,8 +76,6 @@ def run_pipeline(config_path: str):
 
         # Fetch new submissions
         new_df = reddit_ingestor.fetch_submissions(subreddit, days=days)
-
-        print(new_df.head())
 
         # Load existing data and merge with new
         existing_df = load_existing_data(subreddit)
