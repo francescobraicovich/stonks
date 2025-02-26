@@ -32,3 +32,5 @@ class DataCleaner:
         text = re.sub(r'[^\x00-\x7F]+',' ', text)
         text = re.sub(r'\s+', ' ', text).strip()
         return text
+    
+    
