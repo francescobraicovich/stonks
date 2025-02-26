@@ -2,65 +2,89 @@ import os
 import logging
 import yaml
 import pandas as pd
-from dotenv import load_dotenv  # Import dotenv
-from data_ingestion.reddit_api import RedditIngestor
+from typing import Tuple
+import time
+from dotenv import load_dotenv
+
+# Import our custom classes
+from data_ingestion.reddit_ingestor import RedditIngestor
+from data_ingestion.data_cleaner import DataCleaner
 
 # Load environment variables from a .env file
 load_dotenv()
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[
+        logging.FileHandler("reddit_pipeline.log"),
+        logging.StreamHandler()
+    ]
+)
 logger = logging.getLogger(__name__)
 
+# Constants
 DATA_DIR = "data"
+SUBMISSIONS_FILE = "submissions.parquet"
+COMMENTS_FILE = "comments.parquet"
 
 def ensure_data_directory():
-    """Ensures that the 'data' directory exists."""
+    """Ensures that the data directory exists."""
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
+        logger.info(f"Created data directory at {DATA_DIR}")
 
-def load_existing_data(subreddit: str):
-    """Loads existing Parquet data for the subreddit if available."""
-    file_path = os.path.join(DATA_DIR, f"{subreddit}.parquet")
-    if os.path.exists(file_path):
-        try:
-            df = pd.read_parquet(file_path)
-            logger.info(f"Loaded {len(df)} existing posts from {file_path}")
-            return df
-        except Exception as e:
-            logger.error(f"Error loading {file_path}: {e}")
-            return pd.DataFrame()
-    return pd.DataFrame()
-
-def save_to_parquet(df: pd.DataFrame, subreddit: str):
-    """Saves the DataFrame to a Parquet file in the data directory."""
-    if df.empty:
-        logger.warning(f"No new data to save for r/{subreddit}. Skipping.")
-        return
-    
-    file_path = os.path.join(DATA_DIR, f"{subreddit}.parquet")
-    df.to_parquet(file_path, index=False)
-    logger.info(f"Saved {len(df)} unique posts from r/{subreddit} to {file_path}")
-
-def run_pipeline(config_path: str):
+def save_to_parquet(submissions_df: pd.DataFrame, comments_df: pd.DataFrame):
     """
-    Runs the pipeline to fetch Reddit posts and store them in local Parquet files without duplicates.
+    Saves submissions and comments to separate Parquet files.
+    
+    Args:
+        submissions_df: DataFrame containing submission data
+        comments_df: DataFrame containing comment data
     """
     ensure_data_directory()
+    
+    submissions_path = os.path.join(DATA_DIR, SUBMISSIONS_FILE)
+    comments_path = os.path.join(DATA_DIR, COMMENTS_FILE)
+    
+    # Save submissions
+    if not submissions_df.empty:
+        submissions_df.to_parquet(submissions_path, index=False)
+        logger.info(f"Saved {len(submissions_df)} submissions to {submissions_path}")
+    else:
+        logger.warning("No submissions data to save.")
+    
+    # Save comments
+    if not comments_df.empty:
+        comments_df.to_parquet(comments_path, index=False)
+        logger.info(f"Saved {len(comments_df)} comments to {comments_path}")
+    else:
+        logger.warning("No comments data to save.")
 
-    # Load configuration
-    with open(config_path, "r") as f:
-        config = yaml.safe_load(f)
-
-    # Load Reddit API credentials (fallback to .env if not in YAML)
+def fetch_reddit_data(config: dict) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Fetch Reddit submissions and comments based on the configuration.
+    
+    Args:
+        config: Dictionary containing the configuration
+        
+    Returns:
+        Tuple containing (submissions_df, comments_df)
+    """
+    # Extract Reddit API credentials
     reddit_client_id = os.getenv("REDDIT_CLIENT_ID", config["reddit_api"].get("client_id"))
     reddit_client_secret = os.getenv("REDDIT_CLIENT_SECRET", config["reddit_api"].get("client_secret"))
     reddit_username = os.getenv("REDDIT_USERNAME", config["reddit_api"].get("username"))
     reddit_password = os.getenv("REDDIT_PASSWORD", config["reddit_api"].get("password"))
-    user_agent = config["reddit_api"]["user_agent"]
+    user_agent = config["reddit_api"].get("user_agent", "RedditDataCollector/1.0")
+    
+    # Extract other configuration options
     subreddits = config["reddit_api"]["subreddits"]
-    days = config["reddit_api"].get("days", 30)
-
+    limit_per_subreddit = config["reddit_api"].get("limit_per_subreddit", 100)
+    comments_per_submission = config["reddit_api"].get("comments_per_submission", None)
+    filter_media = config["reddit_api"].get("filter_media", True)
+    
     # Initialize Reddit API
     reddit_ingestor = RedditIngestor(
         client_id=reddit_client_id,
@@ -69,19 +93,106 @@ def run_pipeline(config_path: str):
         password=reddit_password,
         user_agent=user_agent,
     )
-
-    # Fetch and store posts for each subreddit
+    
+    all_submissions = []
+    all_comments = []
+    
+    # Process each subreddit
     for subreddit in subreddits:
-        logger.info(f"Starting ingestion for r/{subreddit} (last {days} days)")
+        logger.info(f"Processing subreddit: r/{subreddit}")
+        
+        try:
+            # Fetch latest submissions
+            subreddit_submissions = reddit_ingestor.fetch_latest_submissions(
+                subreddit_name=subreddit,
+                limit=limit_per_subreddit,
+                filter_media=filter_media
+            )
+            
+            if subreddit_submissions.empty:
+                logger.warning(f"No submissions found for r/{subreddit}")
+                continue
+                
+            # Clean submission text
+            subreddit_submissions = DataCleaner.clean_submission_text(subreddit_submissions)
+            
+            # Fetch comments for these submissions
+            subreddit_comments = reddit_ingestor.fetch_comments_for_submissions(
+                submissions_df=subreddit_submissions,
+                top_n=comments_per_submission
+            )
+            
+            # Clean comment text
+            if 'body' in subreddit_comments.columns:
+                subreddit_comments['body'] = subreddit_comments['body'].apply(DataCleaner._clean_text)
+            
+            # Add to our collection
+            all_submissions.append(subreddit_submissions)
+            all_comments.append(subreddit_comments)
+            
+            logger.info(f"Completed processing r/{subreddit}")
+            
+        except Exception as e:
+            logger.error(f"Error processing subreddit r/{subreddit}: {e}")
+        
+        # Sleep between subreddits to avoid rate limits
+        time.sleep(1)
+    
+    # Combine all subreddits
+    if all_submissions:
+        submissions_df = pd.concat(all_submissions, ignore_index=True)
+        logger.info(f"Total submissions collected: {len(submissions_df)}")
+    else:
+        submissions_df = pd.DataFrame()
+        logger.warning("No submissions collected from any subreddit.")
+    
+    if all_comments:
+        comments_df = pd.concat(all_comments, ignore_index=True)
+        logger.info(f"Total comments collected: {len(comments_df)}")
+    else:
+        comments_df = pd.DataFrame()
+        logger.warning("No comments collected from any subreddit.")
+    
+    return submissions_df, comments_df
 
-        # Fetch new submissions
-        new_df = reddit_ingestor.fetch_submissions(subreddit, days=days)
+def run_pipeline(config_path: str):
+    """
+    Run the Reddit data pipeline.
+    
+    Args:
+        config_path: Path to the YAML configuration file
+    """
+    try:
+        # Load configuration
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f)
+        logger.info(f"Loaded configuration from {config_path}")
+        
+        # Fetch Reddit data
+        submissions_df, comments_df = fetch_reddit_data(config)
+        
+        # Save data to Parquet files
+        save_to_parquet(submissions_df, comments_df)
+        
+        logger.info("Pipeline completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
 
-        # Load existing data and merge with new
-        existing_df = load_existing_data(subreddit)
-        combined_df = pd.concat([existing_df, new_df]).drop_duplicates(subset=["id"]).reset_index(drop=True)
+def main():
+    """Main entry point for command-line execution."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Reddit Data Ingestion Pipeline")
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="config.yaml", 
+        help="Path to configuration YAML file"
+    )
+    args = parser.parse_args()
+    
+    run_pipeline(args.config)
 
-        # Save updated dataset
-        save_to_parquet(combined_df, subreddit)
-
-    logger.info("Pipeline completed successfully.")
+if __name__ == "__main__":
+    main()
