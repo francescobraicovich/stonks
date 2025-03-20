@@ -9,3 +9,4 @@ python-dotenv==1.0.1 # For environment variables
 praw==7.8.1 # For Reddit API
 fastparquet==2024.11.0 # For Parquet files
 backoff==2.2.1 # For retries
+zstandard==0.23.0 # To load data from old reddit datasets
