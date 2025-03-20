@@ -26,8 +26,8 @@ logger = logging.getLogger(__name__)
 
 # Constants
 DATA_DIR = "data"
-SUBMISSIONS_FILE = "submissions.parquet"
-COMMENTS_FILE = "comments.parquet"
+SUBMISSIONS_FILE = "submissions_latest.parquet"
+COMMENTS_FILE = "comments_latest.parquet"
 
 def ensure_data_directory():
     """Ensures that the data directory exists."""
@@ -170,6 +170,9 @@ def run_pipeline(config_path: str):
         
         # Fetch Reddit data
         submissions_df, comments_df = fetch_reddit_data(config)
+
+        print(submissions_df.head())
+        print(comments_df.head())
         
         # Save data to Parquet files
         save_to_parquet(submissions_df, comments_df)
@@ -178,21 +181,3 @@ def run_pipeline(config_path: str):
         
     except Exception as e:
         logger.error(f"Pipeline failed: {e}")
-
-def main():
-    """Main entry point for command-line execution."""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Reddit Data Ingestion Pipeline")
-    parser.add_argument(
-        "--config", 
-        type=str, 
-        default="config.yaml", 
-        help="Path to configuration YAML file"
-    )
-    args = parser.parse_args()
-    
-    run_pipeline(args.config)
-
-if __name__ == "__main__":
-    main()
