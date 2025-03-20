@@ -85,12 +85,12 @@ class RedditIngestor:
                 "score": submission.score,
                 "upvote_ratio": submission.upvote_ratio,
                 "num_comments": submission.num_comments,
+                "link_flair_text": submission.link_flair_text,
                 "created_utc": submission.created_utc,
-                "created_date": datetime.utcfromtimestamp(submission.created_utc),
                 "subreddit": subreddit_name,
                 "author": str(submission.author) if submission.author else "[deleted]",
-                "permalink": submission.permalink,
-                "url": submission.url,
+                #"permalink": submission.permalink,
+                #"url": submission.url,
                 "is_self": submission.is_self,
             }
             
@@ -134,7 +134,6 @@ class RedditIngestor:
                         "body": comment.body if hasattr(comment, 'body') else "",
                         "score": comment.score if hasattr(comment, 'score') else 0,
                         "created_utc": comment.created_utc if hasattr(comment, 'created_utc') else 0,
-                        "created_date": datetime.utcfromtimestamp(comment.created_utc) if hasattr(comment, 'created_utc') else None,
                         "author": str(comment.author) if hasattr(comment, 'author') and comment.author else "[deleted]",
                         "parent_id": comment.parent_id if hasattr(comment, 'parent_id') else None,
                         "is_submitter": comment.is_submitter if hasattr(comment, 'is_submitter') else False,
