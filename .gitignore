@@ -172,3 +172,6 @@ cython_debug/
 
 # Config .yml
 config
+
+# ignore large tensor files
+*.safetensors
