@@ -3,7 +3,7 @@ import logging
 import os
 import argparse
 
-from pipelines.reddit_price_pipeline import run_pipeline
+from pipelines.reddit_pipeline import run_pipeline
 
 
 logging.basicConfig(
