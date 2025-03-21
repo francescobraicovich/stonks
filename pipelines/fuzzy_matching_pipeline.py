@@ -22,26 +22,29 @@ COMMENTS_FILE = os.path.join(DATA_DIR, "historical_comments.parquet")
 RESULTS_FILE = os.path.join(DATA_DIR, "stock_mentions.parquet")
 
 
-def load_tickers(file_path: str) -> List[str]:
+def load_tickers(file_path: str, min_number_letters: int = 4) -> List[str]:
     """
-    Load stock tickers from a text file.
+    Load stock tickers from a text file, filtering out tickers that are too short.
 
     Args:
         file_path: Path to the text file containing tickers (one ticker per line).
+        min_number_letters: Minimum number of letters a ticker must have to be considered.
 
     Returns:
         A list of stock tickers.
     """
     try:
         with open(file_path, 'r') as file:
-            tickers = [line.strip() for line in file if line.strip()]  # Read tickers from lines
-        logger.info(f"Loaded {len(tickers)} tickers from {file_path}")
+            tickers = [
+                line.strip() for line in file if line.strip() and len(line.strip()) >= min_number_letters
+            ]  # Read tickers from lines, filter by length
+        logger.info(f"Loaded {len(tickers)} tickers from {file_path} (filtered by length >= {min_number_letters})")
         return tickers
     except Exception as e:
         raise Exception(f"Failed to load tickers: {e}")
 
 
-def extract_stock_mentions_with_context(text_data, tickers: List[str], threshold: int = 80):
+def extract_stock_mentions_with_context(text_data, tickers: List[str], threshold: int = 90):
     """
     Extract stock mentions from text data using fuzzy matching with full context.
 
