@@ -1,3 +1,6 @@
+# DEPRECATED: This file is deprecated and will be removed in the future.
+# DEPRECATED: Please use the nlp/nlp_utils.py file instead.
+
 import pandas as pd
 from mlx_lm import load, generate
 
