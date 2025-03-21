@@ -173,6 +173,8 @@ cython_debug/
 # Config .yml
 config
 
+# DS_Store
+.DS_Store
 # ignore large tensor files
 *.safetensors
 
