@@ -38,16 +38,15 @@ def load_tickers(file_path: str) -> List[str]:
         logger.info(f"Loaded {len(tickers)} tickers from {file_path}")
         return tickers
     except Exception as e:
-        logger.error(f"Failed to load tickers: {e}")
-        return []
+        raise Exception(f"Failed to load tickers: {e}")
 
 
-def extract_stock_mentions_with_context(texts: List[str], tickers: List[str], threshold: int = 80):
+def extract_stock_mentions_with_context(text_data, tickers: List[str], threshold: int = 80):
     """
     Extract stock mentions from text data using fuzzy matching with full context.
 
     Args:
-        texts: List of text strings to analyze.
+        text_data: List of dictionaries with 'text', 'origin', and 'original_index' keys
         tickers: List of valid stock tickers.
         threshold: Minimum similarity ratio for considering a match.
 
@@ -56,7 +55,8 @@ def extract_stock_mentions_with_context(texts: List[str], tickers: List[str], th
     """
     all_mentions = []
     
-    for idx, text in enumerate(texts):
+    for idx, item in enumerate(text_data):
+        text = item['text']
         words = text.split()
         for word in words:
             result = process.extractOne(word.upper(), tickers, scorer=fuzz.ratio)
@@ -68,7 +68,9 @@ def extract_stock_mentions_with_context(texts: List[str], tickers: List[str], th
                         'original_word': word,
                         'match_score': score,
                         'text': text,
-                        'text_index': idx
+                        'text_index': idx,
+                        'origin': item['origin'],
+                        'original_index': item['original_index']
                     }
                     all_mentions.append(mention)
     
@@ -97,8 +99,9 @@ def display_mentions_summary(mentions_df, frequencies, top_n=10):
         
         if not ticker_mentions.empty:
             example = ticker_mentions.iloc[0]
-            logger.info(f"  Example: \"{example['text']}\"")
-            logger.info(f"    Matched word: \"{example['original_word']}\" (score: {example['match_score']})")
+            logger.info(f"Example: {example['original_word']} in '{example['text']}'")
+            logger.info(f"Origin: {example['origin']} (Index: {example['original_index']})")
+            logger.info(f"Match Score: {example['match_score']}")
 
 
 def save_results_to_parquet(mentions_df, frequencies, filepath):
@@ -116,10 +119,10 @@ def save_results_to_parquet(mentions_df, frequencies, filepath):
     })
     
     mentions_filepath = filepath
-    mentions_df.to_parquet(mentions_filepath)
+    mentions_df.to_parquet(mentions_filepath, compression = 'brotli') # approx 70% compression
     
     freq_filepath = filepath.replace('.parquet', '_frequencies.parquet')
-    freq_df.to_parquet(freq_filepath)
+    freq_df.to_parquet(freq_filepath, compression = 'brotli')
     
     logger.info(f"Saved mentions to {mentions_filepath}")
     logger.info(f"Saved frequencies to {freq_filepath}")
@@ -146,15 +149,35 @@ def run_pipeline(ticker_file=None, top_n=10, save_results=True):
     try:
         submissions_df = pd.read_parquet(SUBMISSIONS_FILE)
         comments_df = pd.read_parquet(COMMENTS_FILE)
-        texts = (submissions_df['title'].tolist() + 
-                 comments_df['body'].tolist() + 
-                 submissions_df['selftext'].tolist())
-        logger.info(f"Loaded {len(texts)} text samples from {SUBMISSIONS_FILE} and {COMMENTS_FILE}")
+        
+        text_data = []
+        
+        for idx, title in enumerate(submissions_df['title']):
+            text_data.append({
+                'text': title,
+                'origin': 'submission_title',
+                'original_index': submissions_df.index[idx]
+            })
+        
+        for idx, selftext in enumerate(submissions_df['selftext']):
+            text_data.append({
+                'text': selftext,
+                'origin': 'submission_selftext',
+                'original_index': submissions_df.index[idx]
+            })
+        
+        for idx, body in enumerate(comments_df['body']):
+            text_data.append({
+                'text': body,
+                'origin': 'comment',
+                'original_index': comments_df.index[idx]
+            })
+        
+        logger.info(f"Loaded {len(text_data)} text samples from {SUBMISSIONS_FILE} and {COMMENTS_FILE}")
     except Exception as e:
-        logger.error(f"Failed to load Parquet files: {e}")
-        texts = []
+        raise Exception(f"Failed to load data: {e}")
 
-    mentions_df, frequencies = extract_stock_mentions_with_context(texts, tickers)
+    mentions_df, frequencies = extract_stock_mentions_with_context(text_data, tickers)
     display_mentions_summary(mentions_df, frequencies, top_n)
     
     if save_results and not mentions_df.empty:
@@ -164,10 +187,6 @@ def run_pipeline(ticker_file=None, top_n=10, save_results=True):
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
     mentions_df, frequencies = run_pipeline()
     logger.info("Pipeline completed successfully.")
-    print(mentions_df.head())
-=======
-    mentions_df, frequencies = run_pipeline()
->>>>>>> origin/STK-14-fuzzy-matching-change-output-format
+    print(mentions_df[['ticker', 'original_word', 'match_score', 'origin', 'original_index']].head())
