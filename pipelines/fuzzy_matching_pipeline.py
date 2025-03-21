@@ -1,7 +1,7 @@
 import os
 import logging
 import pandas as pd
-from typing import Dict, List
+from typing import List
 from collections import Counter
 from rapidfuzz import fuzz, process
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 DATA_DIR = "data"
 SUBMISSIONS_FILE = os.path.join(DATA_DIR, "historical_submissions.parquet")
 COMMENTS_FILE = os.path.join(DATA_DIR, "historical_comments.parquet")
+RESULTS_FILE = os.path.join(DATA_DIR, "stock_mentions.parquet")
 
 
 def load_tickers(file_path: str) -> List[str]:
@@ -41,9 +42,9 @@ def load_tickers(file_path: str) -> List[str]:
         return []
 
 
-def extract_stock_mentions(texts: List[str], tickers: List[str], threshold: int = 80) -> Counter:
+def extract_stock_mentions_with_context(texts: List[str], tickers: List[str], threshold: int = 80):
     """
-    Extract stock mentions from text data using fuzzy matching.
+    Extract stock mentions from text data using fuzzy matching with full context.
 
     Args:
         texts: List of text strings to analyze.
@@ -51,36 +52,80 @@ def extract_stock_mentions(texts: List[str], tickers: List[str], threshold: int 
         threshold: Minimum similarity ratio for considering a match.
 
     Returns:
-        Counter with frequency of stock mentions.
+        DataFrame containing all stock mentions with context
     """
-    mentions = Counter()
-
-    for text in texts:
+    all_mentions = []
+    
+    for idx, text in enumerate(texts):
         words = text.split()
         for word in words:
             result = process.extractOne(word.upper(), tickers, scorer=fuzz.ratio)
             if result is not None:
-                match, score, _ = result
+                ticker, score, _ = result
                 if score >= threshold:
-                    mentions[match] += 1
+                    mention = {
+                        'ticker': ticker,
+                        'original_word': word,
+                        'match_score': score,
+                        'text': text,
+                        'text_index': idx
+                    }
+                    all_mentions.append(mention)
+    
+    mentions_df = pd.DataFrame(all_mentions)
+    frequencies = Counter(mentions_df['ticker'])
+    
+    return mentions_df, frequencies
 
-    return mentions
 
-
-def display_common_mentions(mentions: Counter, top_n: int = 10):
+def display_mentions_summary(mentions_df, frequencies, top_n=10):
     """
-    Display the most common stock mentions.
+    Display summary of stock mentions.
 
     Args:
-        mentions: Counter with stock mention frequencies.
-        top_n: Number of top mentions to display.
+        mentions_df: DataFrame containing all mentions
+        frequencies: Counter with mention frequencies
+        top_n: Number of top mentions to display
     """
     logger.info("Most commonly mentioned stocks:")
-    for stock, count in mentions.most_common(top_n):
-        logger.info(f"{stock}: {count}")
+    
+    for ticker, count in frequencies.most_common(top_n):
+        ticker_mentions = mentions_df[mentions_df['ticker'] == ticker]
+        unique_texts = ticker_mentions['text_index'].nunique()
+        
+        logger.info(f"{ticker}: {count} mentions in {unique_texts} texts")
+        
+        if not ticker_mentions.empty:
+            example = ticker_mentions.iloc[0]
+            logger.info(f"  Example: \"{example['text']}\"")
+            logger.info(f"    Matched word: \"{example['original_word']}\" (score: {example['match_score']})")
 
 
-def run_pipeline(ticker_file=None, top_n=10):
+def save_results_to_parquet(mentions_df, frequencies, filepath):
+    """
+    Save results to Parquet files.
+
+    Args:
+        mentions_df: DataFrame of all mentions
+        frequencies: Counter of frequencies
+        filepath: Path to save the Parquet file
+    """
+    freq_df = pd.DataFrame({
+        'ticker': list(frequencies.keys()),
+        'frequency': list(frequencies.values())
+    })
+    
+    mentions_filepath = filepath
+    mentions_df.to_parquet(mentions_filepath)
+    
+    freq_filepath = filepath.replace('.parquet', '_frequencies.parquet')
+    freq_df.to_parquet(freq_filepath)
+    
+    logger.info(f"Saved mentions to {mentions_filepath}")
+    logger.info(f"Saved frequencies to {freq_filepath}")
+
+
+def run_pipeline(ticker_file=None, top_n=10, save_results=True):
     """
     Run the complete stock mention extraction pipeline.
     
@@ -88,9 +133,10 @@ def run_pipeline(ticker_file=None, top_n=10):
         ticker_file: Path to the file containing stock tickers.
                     If None, uses default path.
         top_n: Number of top stock mentions to display.
+        save_results: Whether to save results to Parquet file.
         
     Returns:
-        Counter with stock mention frequencies.
+        Tuple of (mentions_df, frequencies)
     """
     if ticker_file is None:
         ticker_file = os.path.join(DATA_DIR, "tickers.txt")
@@ -106,11 +152,16 @@ def run_pipeline(ticker_file=None, top_n=10):
         logger.error(f"Failed to load Parquet files: {e}")
         texts = []
 
-    mentions = extract_stock_mentions(texts, tickers)
-    display_common_mentions(mentions, top_n)
+    mentions_df, frequencies = extract_stock_mentions_with_context(texts, tickers)
+    display_mentions_summary(mentions_df, frequencies, top_n)
     
-    return mentions
+    if save_results and not mentions_df.empty:
+        save_results_to_parquet(mentions_df, frequencies, RESULTS_FILE)
+    
+    return mentions_df, frequencies
 
 
 if __name__ == "__main__":
-    run_pipeline()
+    mentions_df, frequencies = run_pipeline()
+    logger.info("Pipeline completed successfully.")
+    print(mentions_df.head())
