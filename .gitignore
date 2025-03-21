@@ -175,3 +175,8 @@ config
 
 # DS_Store
 .DS_Store
+# ignore large tensor files
+*.safetensors
+
+# do not track the api key
+api_key.txt
