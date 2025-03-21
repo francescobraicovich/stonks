@@ -146,7 +146,9 @@ def run_pipeline(ticker_file=None, top_n=10, save_results=True):
     try:
         submissions_df = pd.read_parquet(SUBMISSIONS_FILE)
         comments_df = pd.read_parquet(COMMENTS_FILE)
-        texts = submissions_df['title'].tolist() + comments_df['body'].tolist() + submissions_df['selftext'].tolist()
+        texts = (submissions_df['title'].tolist() + 
+                 comments_df['body'].tolist() + 
+                 submissions_df['selftext'].tolist())
         logger.info(f"Loaded {len(texts)} text samples from {SUBMISSIONS_FILE} and {COMMENTS_FILE}")
     except Exception as e:
         logger.error(f"Failed to load Parquet files: {e}")
@@ -162,6 +164,10 @@ def run_pipeline(ticker_file=None, top_n=10, save_results=True):
 
 
 if __name__ == "__main__":
+<<<<<<< HEAD
     mentions_df, frequencies = run_pipeline()
     logger.info("Pipeline completed successfully.")
     print(mentions_df.head())
+=======
+    mentions_df, frequencies = run_pipeline()
+>>>>>>> origin/STK-14-fuzzy-matching-change-output-format
