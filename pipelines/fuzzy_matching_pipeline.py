@@ -16,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Constants
-DATA_DIR = "data"
+DATA_DIR = "data/parquets"
 SUBMISSIONS_FILE = os.path.join(DATA_DIR, "historical_submissions.parquet")
 COMMENTS_FILE = os.path.join(DATA_DIR, "historical_comments.parquet")
 RESULTS_FILE = os.path.join(DATA_DIR, "stock_mentions.parquet")
