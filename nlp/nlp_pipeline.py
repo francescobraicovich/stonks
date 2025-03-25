@@ -1,73 +1,104 @@
-# DEPRECATED: This file is deprecated and will be removed in the future.
-# DEPRECATED: Please use the nlp/nlp_utils.py file instead.
-
 import pandas as pd
-from mlx_lm import load, generate
+from nlp_utils import score_text_gemini, system_text
+import os
+from sklearn.model_selection import train_test_split
+import json
 
-# suppose we have a list of comments with the following attributes: text, stocks
+stock_mentions = "../data/stock_mentions.parquet"
+stock_mentions = pd.read_parquet(stock_mentions)
 
-def score_text(text, stock, model_path):
-    """
-    Classifies the sentiment of a given text comment about a specific stock.
+with open("api_key.txt", "r") as f:
+    api_key = f.read().strip()
 
-    Args:
-        text (str): The text comment to be analyzed.
-        stock (str): The stock symbol or name that the comment is about.
-        model_path (str): The file path to the pre-trained model and tokenizer.
+def score_row_gemini(row):
+    score, tokens = score_text_gemini(row['text'], row['ticker'], api_key)
+    print(f'scored {row['origin']} at index {row['original_index']}')
+    return score
 
-    Returns:
-        int: The sentiment classification of the comment:
-             1 if the comment is positive (bullish) about the stock,
-            -1 if the comment is negative (bearish) about the stock,
-             0 if the comment is neutral about the stock.
-    """
-    model, tokenizer = load(model_path)
+def score_dataframe(df, start_index=0, end_index=99):
+    return df.iloc[start_index:end_index].apply(score_row_gemini, axis=1)
 
-    messages = [{
-        'role': 'system',
-        'content': f'''
-                    You need to act as an expert linguist, trader and researcher, read the reddit comment about {stock} that is given to you, and classify wether the comment is bullish or bearish about {stock}.
-                    Your answer should be 1 if the comment is positive about the stock, -1 if it is negative, and 0 if it is neutral. Do not reply to the comment, just classify it.
-                    ''',
-    },
-    {
-        'role': 'user',
-        'content': text,
-    }]
-    prompt = tokenizer.apply_chat_template(
-        messages, add_generation_prompt=True
-    )
-    text = generate(model, tokenizer, prompt=prompt, verbose=False)
+def apply_scores(df, start_index=0, end_index=99):
+    reduced_df = df.iloc[start_index:end_index]
+    reduced_df['score'] = score_dataframe(df, start_index, end_index)
+    return reduced_df
 
-    try:
-        text = int(text)
-    except ValueError:
-        text = 0
+def save_scores(df, start_index=0, end_index=99):
+    reduced_df = apply_scores(df, start_index, end_index)
+    reduced_df.to_parquet(f"fine_tuning/data/partial/reduced_stock_mentions_{first_index}_{last_index}.parquet")
+    return None
+
+def score_full_dataset(df, batch_size=100):
+    for i in range(0, len(df), batch_size):
+        try:
+            save_scores(df, i, i + batch_size)
+        except:
+            print(f"failed to save batch {i} to {i + batch_size}")
+    return None
+
+def retrieve_scores(df, start_index=0, end_index=99):
+    return pd.read_parquet(f"fine_tuning/data/partial/reduced_stock_mentions_{start_index}_{end_index}.parquet")
+
+def retrieve_full_scores(df):
+    directory = os.fsencode('fine_tuning/data/partial/')
+
+    filenames = []
     
-    return text
-
-def score_comments(comments, model_path):
-    """
-    Classifies the sentiment of a list of text comments about specific stocks.
-
-    Args:
-        comments (list): A list of dictionaries where each dictionary has the keys 'text' and 'stocks'.
-        model_path (str): The file path to the pre-trained model and tokenizer.
-
-    Returns:
-        pd.DataFrame: A DataFrame with the columns 'text', 'stocks', and 'sentiment'.
-                      The 'sentiment' column contains the sentiment classification of each comment.
-    """
-    data = []
-    for comment in comments:
-        if len(comment['stocks']) != 1:
+    for file in os.listdir(directory):
+        filename = os.fsdecode(file)
+        if filename.endswith(".parquet"): 
+            filenames.append(filename)
             continue
-        sentiment = score_text(comment['text'], comment['stocks'], model_path)
-        data.append({
-            'text': comment['text'],
-            'stocks': comment['stocks'],
-            'sentiment': sentiment
-        })
+        else:
+            continue
 
-    return pd.DataFrame(data)
+    filenames = sorted(filenames)
+    dataframes = []
 
+    for filename in filenames:
+        dataframes.append(pd.read_parquet(f"fine_tuning/data/partial/{filename}"))
+
+    return pd.concat(dataframes)
+
+
+
+def system_row(row):
+    prompt = system_text(row['ticker'])
+    return prompt
+
+def system_dataframe(df):
+    df['system_text'] = df.apply(system_row, axis=1)
+    return df
+
+def to_json_df(df):
+    return pd.DataFrame([{"messages": [{"role": "system", "content": row["system_text"]}, {"role": "user", "content": row["text"]},{"role": "assistant", "content": row["score"]}]} for _, row in df.iterrows()])
+
+def split_json(json_df):
+    # Split into 80% train, 20% temp (which will be split further)
+    train_data, temp_data = train_test_split(json_df, test_size=0.2, random_state=42)
+
+    # Split temp into 50% validation, 50% test (so each is 10% of total)
+    val_data, test_data = train_test_split(temp_data, test_size=0.5, random_state=42)
+
+    # Convert DataFrames back to list format for JSON saving
+    train_json = train_data.to_dict(orient="records")
+    val_json = val_data.to_dict(orient="records")
+    test_json = test_data.to_dict(orient="records")
+
+    return train_json, val_json, test_json
+
+def save_jsons(train_json, val_json, test_json):
+    # Save train set
+    with open("fine_tuning/data/json/train.jsonl", "w", encoding="utf-8") as f:
+        for item in train_json:
+            f.write(json.dumps(item) + '\n')
+
+    # Save validation set
+    with open("fine_tuning/data/json/valid.jsonl", "w", encoding="utf-8") as f:
+        for item in val_json:
+            f.write(json.dumps(item) + '\n')
+
+    # Save test set
+    with open("fine_tuning/data/json/test.jsonl", "w", encoding="utf-8") as f:
+        for item in test_json:
+            f.write(json.dumps(item) + '\n')
